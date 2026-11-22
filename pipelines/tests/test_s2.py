@@ -152,6 +152,7 @@ def test_a_better_model_becomes_challenger_with_every_contract_tag(lab, monkeypa
     assert mv.tags["training_window"] == "2024-01..2024-03" and mv.tags["holdout_month"] == "2024-04"
     assert mv.tags["git_sha"] == "abc1234" and mv.tags["features_version"] == str(features_contract()["version"])
     assert float(mv.tags["mae_min"]) < float(mv.tags["champion_mae_min"])  # beat the v1 baseline
+    assert mv.tags["gate"] == "passed"  # what promotion (S3) checks
     metrics = client.get_run(mv.run_id).data.metrics
     assert {"mae_min", "p95_latency_ms", "champion_mae_min", "mae_min.manhattan"} <= set(metrics)
     assert "champion" not in client.get_registered_model(NAME).aliases
@@ -162,6 +163,7 @@ def test_a_version_that_misses_the_margin_is_registered_but_never_challenger(lab
     done = _train(defs, monkeypatch, min_improvement_min=1000.0)
     assert "eval_report" in done and "challenger" not in done
     assert client.get_registered_model(NAME).aliases == {}
+    assert "gate" not in client.get_model_version(NAME, "1").tags
 
 
 def test_an_undecided_gate_never_sets_challenger(lab, monkeypatch):

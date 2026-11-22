@@ -240,6 +240,9 @@ def challenger(context: dg.AssetExecutionContext, tracking: MlflowTracking) -> d
     alias = "challenger"
     assert alias in contract["aliases"]
     client = tracking.client()
+    # Recorded on the version, so promotion (S3, .github/workflows/promote.yaml) can refuse one that
+    # never passed the gate, whatever alias it has by then.
+    client.set_model_version_tag(contract["registered_model"], str(report["version"]), "gate", "passed")
     client.set_registered_model_alias(contract["registered_model"], alias, str(report["version"]))
     context.log.info(f"{alias} -> {contract['registered_model']} v{report['version']}")
     return dg.MaterializeResult(metadata={"alias": alias, "version": str(report["version"]), "against": str(report["against"])})

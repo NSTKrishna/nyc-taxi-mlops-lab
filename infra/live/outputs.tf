@@ -8,6 +8,10 @@ output "app_instance_id" {
   value = module.app.instance_id
 }
 
+output "platform_private_ip" { # S3: serving's MLFLOW_TRACKING_URI (gh variable)
+  value = module.platform.private_ip
+}
+
 output "platform_instance_id" {
   value = module.platform.instance_id
 }

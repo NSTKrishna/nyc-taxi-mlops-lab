@@ -1,0 +1,56 @@
+# Blue-green switch and rollback (S3): send app traffic to the other colour, which is still running, with
+# no build and no deploy. The same workflow is the manual switch when cd.yaml's SWITCH is "manual".
+#   gh workflow run switch.yaml                 roll back: traffic to the colour that isn't live
+#   gh workflow run switch.yaml -f colour=green to a named colour
+# The target is smoke-tested first; a colour that fails stays idle. The job summary has the timing.
+name: switch
+
+on:
+  workflow_dispatch:
+    inputs:
+      colour:
+        description: "blue, green, or 'other' for whichever isn't live (a rollback)"
+        default: other
+        type: choice
+        options: [other, blue, green]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-app  # never at the same time as a CD deploy
+  cancel-in-progress: false
+
+jobs:
+  switch:
+    runs-on: [self-hosted, lab-app]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Switch
+        env:
+          COLOUR: ${{ inputs.colour }}
+        run: |
+          start=$(date +%s%3N)  # milliseconds (GNU date on the host)
+          live=$(deploy/web.sh live)
+          if [[ $COLOUR == other ]]; then
+            [[ $live =~ ^(blue|green)$ ]] || { echo "::error::nothing is live yet ($live): deploy first"; exit 1; }
+            target=$([[ $live == blue ]] && echo green || echo blue)
+          else
+            target=$COLOUR
+          fi
+          [[ $target != "$live" ]] || { echo "$target is already live"; exit 0; }
+          tag=$(deploy/web.sh tag "$target")
+          [[ $tag != none ]] || { echo "::error::$target isn't running: nothing to switch to"; exit 1; }
+          deploy/web.sh smoke "$target" "$tag"
+          deploy/web.sh switch "$target"
+          out=$(curl -fsS --retry 10 --retry-all-errors --retry-delay 1 http://127.0.0.1/version)
+          echo "$out" | jq -e --arg sha "$tag" '.git_sha == $sha'
+          ms=$(( $(date +%s%3N) - start )); took=$((ms / 1000)).$(printf %03d $((ms % 1000)))
+          echo "::notice::app traffic $live -> $target ($tag) in ${took}s"
+          {
+            echo "### Switch: $live -> $target"
+            echo "Took ${took}s (smoke test included). Now live: \`$tag\`."
+            echo '```json'
+            deploy/web.sh status
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,94 @@
+# Promotion (S3): move MLflow's `champion` alias to a version the pipeline evaluated and gated, behind
+# the `production` environment's required reviewer. The only place `champion` moves.
+#   gh workflow run promote.yaml                  the current challenger
+#   gh workflow run promote.yaml -f version=3     a version you name (it must have passed the gate too)
+# Records the outgoing champion on the new version (tag previous_champion), makes serving use the new
+# one, and checks /predict through serving and through the app. If anything fails after the alias
+# moved, the old champion is put back.
+name: promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Model version to promote (empty: whatever challenger points at)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promote
+  cancel-in-progress: false
+
+env:
+  # Decision (decisions/, S3): how serving picks up the new champion.
+  #   reload   POST /reload: the old model answers until the new one has loaded (deploy/web.sh reload)
+  #   restart  restart serving-champion: it loads the alias at start-up; riders get the static median meanwhile
+  # Until it's decided, the job stops before it changes anything.
+  PICKUP: undecided
+  SERVING: lab-serving-serving-champion-1
+  PREDICT_FEATURES: '{"pickup_zone_id": 132, "dropoff_zone_id": 230, "pickup_hour": 17, "pickup_dow": 5}'
+  PREDICT_TRIP: '{"pickup_zone_id": 132, "dropoff_zone_id": 230, "pickup_datetime": "2024-03-08T17:05:00"}'
+
+jobs:
+  promote:
+    runs-on: [self-hosted, lab-app]
+    environment: production  # waits here for the required reviewer
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Which version, and did the pipeline gate it
+        env:
+          VERSION_IN: ${{ inputs.version }}
+        run: |
+          [[ $PICKUP =~ ^(reload|restart)$ ]] || { echo "::error::PICKUP is '$PICKUP' (promote.yaml env): decide reload or restart"; exit 1; }
+          pm() { docker exec -i -e CONTRACT="$(cat contracts/mlflow.yaml)" "$SERVING" python - "$@" < deploy/promote.py; }
+          v=$(pm resolve "$VERSION_IN") || { echo "$v"; exit 1; }
+          pm check "$v"
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+      - name: Move champion
+        run: |
+          pm() { docker exec -i -e CONTRACT="$(cat contracts/mlflow.yaml)" "$SERVING" python - "$@" < deploy/promote.py; }
+          old=$(pm move "$VERSION" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID") || { echo "$old"; exit 1; }
+          echo "OLD=$old" >> "$GITHUB_ENV"
+          echo "### champion: v$old -> v$VERSION (approved by the production reviewer)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Serving picks up the new champion
+        run: |
+          if [[ $PICKUP == reload ]]; then
+            deploy/web.sh reload champion
+          else
+            docker restart "$SERVING"
+          fi
+          for _ in $(seq 1 60); do
+            got=$(docker exec "$SERVING" python -c 'import json, urllib.request; print(json.load(urllib.request.urlopen("http://localhost:8001/model", timeout=5))["version"])' 2>/dev/null || true)
+            [[ $got == "$VERSION" ]] && { echo "serving-champion serves v$got"; exit 0; }
+            sleep 5
+          done
+          echo "::error::serving-champion still serves '${got:-nothing}' after 5 minutes"; exit 1
+      - name: Check /predict
+        run: |
+          # Through Traefik's serving entrypoint (it health-checks /model, so allow it a few rounds).
+          for _ in $(seq 1 20); do
+            s=$(curl -fsS -m 5 http://127.0.0.1:8001/predict -H 'Content-Type: application/json' -d "$PREDICT_FEATURES" || true)
+            jq -e --arg v "$VERSION" '.model.alias == "champion" and .model.version == $v' <<<"${s:-null}" >/dev/null && break
+            sleep 3
+          done
+          echo "serving /predict: $s"
+          jq -e --arg v "$VERSION" '.model.alias == "champion" and .model.version == $v' <<<"${s:-null}"
+          # And what a rider sees: the app asks serving, and falls back to the static median if it can't.
+          for _ in $(seq 1 20); do
+            a=$(curl -fsS -m 5 http://127.0.0.1/predict -H 'Content-Type: application/json' -d "$PREDICT_TRIP" || true)
+            jq -e --arg v "$VERSION" '.model.alias == "champion" and .model.version == $v' <<<"${a:-null}" >/dev/null && break
+            sleep 3
+          done
+          echo "app /predict: $a"
+          jq -e --arg v "$VERSION" '.model.alias == "champion" and .model.version == $v' <<<"${a:-null}"
+          { echo '```json'; deploy/web.sh status; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Put the old champion back
+        if: failure() && env.OLD != ''
+        run: |
+          pm() { docker exec -i -e CONTRACT="$(cat contracts/mlflow.yaml)" "$SERVING" python - "$@" < deploy/promote.py; }
+          pm restore "$OLD"
+          if [[ $PICKUP == reload ]]; then deploy/web.sh reload champion || true; else docker restart "$SERVING"; fi
+          echo "::warning::promotion of v$VERSION failed after the alias moved: champion is back on v$OLD"

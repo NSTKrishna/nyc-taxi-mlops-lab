@@ -1,5 +1,7 @@
-# S0 CD: after ci succeeds on main, deploy that commit's image on the app host through the self-hosted
-# runner (label lab-app, instance profile: decisions/002), then smoke-test /version.
+# CD (S0, blue-green from S3): after ci succeeds on main, deploy that commit's app image to the idle
+# colour on the app host (deploy/compose.web.yaml, through the self-hosted runner, instance profile:
+# decisions/002), smoke-test it pinned to that colour, then switch traffic to it. The old colour keeps
+# running: rolling back is .github/workflows/switch.yaml, with no deploy.
 # The job runs on the host, so it is guarded: only a push-triggered ci run of this repository's main.
 name: cd
 
@@ -16,6 +18,14 @@ concurrency:
   group: deploy-app
   cancel-in-progress: false
 
+env:
+  # Decision (decisions/, S3): what triggers the blue-green switch once the idle colour passed its smoke test.
+  #   auto    this job switches right away
+  #   manual  the new colour stays idle; a person runs the switch workflow (gh workflow run switch.yaml)
+  # Until it's decided the new colour is deployed and smoke-tested but not switched to, and the job fails
+  # saying so. The very first blue-green deploy always switches: there is no live colour to keep.
+  SWITCH: undecided
+
 jobs:
   deploy:
     if: >-
@@ -29,6 +39,7 @@ jobs:
       packages: read
     env:
       IMAGE_TAG: ${{ github.event.workflow_run.head_sha }}
+      LLM_HOST: ${{ vars.LLM_HOST }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -38,13 +49,41 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Deploy
+      - name: Deploy to the idle colour
         run: |
           export IMAGE_PREFIX="ghcr.io/${GITHUB_REPOSITORY,,}"
-          docker compose -f deploy/compose.app.yaml pull
-          docker compose -f deploy/compose.app.yaml up -d --wait --remove-orphans
-      - name: Smoke test /version
+          deploy/web.sh prepare  # network, routes, Traefik with this stack's config (first time: replaces S0's)
+          live=$(deploy/web.sh live)
+          idle=$([[ $live == blue ]] && echo green || echo blue)
+          # The live colour keeps the tag it runs; only the idle one changes.
+          if [[ $idle == blue ]]; then
+            export BLUE_TAG=$IMAGE_TAG GREEN_TAG=$(deploy/web.sh tag green)
+          else
+            export GREEN_TAG=$IMAGE_TAG BLUE_TAG=$(deploy/web.sh tag blue)
+          fi
+          echo "live: $live -> deploying $IMAGE_TAG to $idle"
+          docker compose -f deploy/compose.web.yaml pull "app-$idle"
+          # --remove-orphans: the first time, S0's single `app` container goes (same project, lab-app).
+          docker compose -f deploy/compose.web.yaml up -d --wait --no-deps --remove-orphans "app-$idle"
+          { echo "LIVE=$live"; echo "IDLE=$idle"; } >> "$GITHUB_ENV"
+      - name: Smoke test the idle colour
+        run: deploy/web.sh smoke "$IDLE" "$IMAGE_TAG"
+      - name: Switch
         run: |
-          out=$(curl -fsS --retry 10 --retry-all-errors --retry-delay 3 http://127.0.0.1/version)
-          echo "$out"
-          echo "$out" | jq -e --arg sha "$IMAGE_TAG" '.git_sha == $sha'
+          if [[ $LIVE == none ]]; then
+            echo "first blue-green deploy: nothing live to keep, switching"
+          elif [[ $SWITCH == manual ]]; then
+            echo "::notice::$IMAGE_TAG is on $IDLE and passed its smoke test; $LIVE stays live. Switch: gh workflow run switch.yaml -f colour=$IDLE"
+            exit 0
+          elif [[ $SWITCH != auto ]]; then
+            echo "::error::SWITCH is '$SWITCH' (cd.yaml env): decide auto or manual. $IMAGE_TAG is on $IDLE, smoke-tested, not live; $LIVE still serves."
+            exit 1
+          fi
+          deploy/web.sh switch "$IDLE"
+      - name: Check what is live
+        run: |
+          live=$(deploy/web.sh live)
+          out=$(curl -fsS --retry 10 --retry-all-errors --retry-delay 2 http://127.0.0.1/version)
+          echo "live: $live, /version: $out"
+          echo "$out" | jq -e --arg sha "$(deploy/web.sh tag "$live")" '.git_sha == $sha'
+          { echo "### Live: $live"; echo '```json'; deploy/web.sh status; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
