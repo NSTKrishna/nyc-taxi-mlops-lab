@@ -1,0 +1,18 @@
+# systemd unit for deploy/lab-restore.sh on lab-platform (S4, decisions/012). Installed by
+# scripts/install-boot-restore.sh as /etc/systemd/system/lab-restore.service.
+[Unit]
+Description=Lab restore after boot: RDS, Redshift and the platform stack (decisions/012)
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+# exec, not oneshot: a 15-minute wait for RDS must not hold up the rest of the boot (SSM, the runner).
+Type=exec
+ExecStart=/usr/local/sbin/lab-restore
+RuntimeMaxSec=50min
+StandardOutput=append:/var/log/lab-restore.log
+StandardError=append:/var/log/lab-restore.log
+
+[Install]
+WantedBy=multi-user.target
