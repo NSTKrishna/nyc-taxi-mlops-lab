@@ -54,6 +54,12 @@ module "artifact_bucket" {
   name   = "lab-artifacts"
 }
 
+module "grafana_secret" {
+  source      = "../modules/secret"
+  name        = "lab/grafana"
+  description = "Grafana Cloud remote write (url, user, token) for Alloy and the rules (S5). Value is put out of band."
+}
+
 module "wiki_secret" {
   source      = "../modules/secret"
   name        = "lab/wiki"

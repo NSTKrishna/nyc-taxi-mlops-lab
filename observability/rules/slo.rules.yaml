@@ -2,4 +2,84 @@
 # Prometheus rule format: https://prometheus.io/docs/prometheus/latest/configuration/recording_rules/
 # Metric names are contracts/metrics.yaml's. `make check` runs promtool on this file and on any
 # *.test.yaml next to it.
-groups: []
+#
+# Each SLI is recorded as an error ratio (bad / all /predict requests) over 5 m and 1 h, summed over
+# both app colours. Objective 99% (observability/slo.yaml), so the allowed error ratio is 0.01; the
+# fast-burn alerts page when both windows burn more than 14.4 times that (0.144). The 5 m window comes
+# first, so an alert's $value is the last 5 minutes' error ratio.
+groups:
+  - name: slo-predict
+    interval: 1m
+    rules:
+      # Availability: 5xx answers to /predict.
+      - record: slo:predict_availability:error_ratio_rate5m
+        expr: |
+          sum(rate(lab_http_requests_total{route="/predict", code=~"5.."}[5m]))
+            / sum(rate(lab_http_requests_total{route="/predict"}[5m]))
+      - record: slo:predict_availability:error_ratio_rate1h
+        expr: |
+          sum(rate(lab_http_requests_total{route="/predict", code=~"5.."}[1h]))
+            / sum(rate(lab_http_requests_total{route="/predict"}[1h]))
+
+      # Latency: /predict answered in more than 250 ms.
+      - record: slo:predict_latency:error_ratio_rate5m
+        expr: |
+          1 - (
+            sum(rate(lab_http_request_duration_seconds_bucket{route="/predict", le="0.25"}[5m]))
+              / sum(rate(lab_http_request_duration_seconds_count{route="/predict"}[5m]))
+          )
+      - record: slo:predict_latency:error_ratio_rate1h
+        expr: |
+          1 - (
+            sum(rate(lab_http_request_duration_seconds_bucket{route="/predict", le="0.25"}[1h]))
+              / sum(rate(lab_http_request_duration_seconds_count{route="/predict"}[1h]))
+          )
+
+      # Model answered: quotes from the static-median fallback instead of the model.
+      - record: slo:predict_model_answered:error_ratio_rate5m
+        expr: |
+          sum(rate(lab_predictions_total{source="fallback"}[5m]))
+            / sum(rate(lab_predictions_total[5m]))
+      - record: slo:predict_model_answered:error_ratio_rate1h
+        expr: |
+          sum(rate(lab_predictions_total{source="fallback"}[1h]))
+            / sum(rate(lab_predictions_total[1h]))
+
+  - name: slo-predict-alerts
+    interval: 1m
+    rules:
+      - alert: PredictAvailabilityFastBurn
+        expr: |
+          slo:predict_availability:error_ratio_rate5m > (14.4 * 0.01)
+            and slo:predict_availability:error_ratio_rate1h > (14.4 * 0.01)
+        for: 1m
+        labels:
+          severity: page
+          slo: predict-availability
+        annotations:
+          summary: "/predict is answering 5xx: {{ $value | humanizePercentage }} over 5 m, burning the 99% availability budget 14.4x too fast"
+          runbook: runbooks/restore.md
+
+      - alert: PredictLatencyFastBurn
+        expr: |
+          slo:predict_latency:error_ratio_rate5m > (14.4 * 0.01)
+            and slo:predict_latency:error_ratio_rate1h > (14.4 * 0.01)
+        for: 1m
+        labels:
+          severity: page
+          slo: predict-latency
+        annotations:
+          summary: "/predict is slow: {{ $value | humanizePercentage }} of requests over 250 ms in the last 5 m"
+          runbook: runbooks/restore.md
+
+      - alert: PredictModelAnsweredFastBurn
+        expr: |
+          slo:predict_model_answered:error_ratio_rate5m > (14.4 * 0.01)
+            and slo:predict_model_answered:error_ratio_rate1h > (14.4 * 0.01)
+        for: 1m
+        labels:
+          severity: page
+          slo: predict-model-answered
+        annotations:
+          summary: "Riders get the static median: {{ $value | humanizePercentage }} of quotes from the fallback in the last 5 m (is serving-champion up?)"
+          runbook: runbooks/restore.md

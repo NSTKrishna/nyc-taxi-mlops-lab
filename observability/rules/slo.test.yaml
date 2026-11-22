@@ -1,0 +1,106 @@
+# promtool unit tests for slo.rules.yaml (S5): an outage pages, a short spike doesn't.
+# Traffic is 600 /predict requests a minute (10/s), one sample a minute.
+rule_files:
+  - slo.rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # Availability: from minute 10 every /predict answers 500.
+  - interval: 1m
+    input_series:
+      - series: 'lab_http_requests_total{route="/predict", method="POST", code="200"}'
+        values: '0+600x10 6000x50'
+      - series: 'lab_http_requests_total{route="/predict", method="POST", code="500"}'
+        values: '0x10 600+600x49'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: PredictAvailabilityFastBurn
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: PredictAvailabilityFastBurn
+        exp_alerts:
+          - exp_labels: {severity: page, slo: predict-availability}
+            exp_annotations:
+              runbook: runbooks/restore.md
+              summary: "/predict is answering 5xx: 100% over 5 m, burning the 99% availability budget 14.4x too fast"
+
+  # Availability: a 2-minute burst of 500s in an hour of good traffic doesn't page.
+  - interval: 1m
+    input_series:
+      - series: 'lab_http_requests_total{route="/predict", method="POST", code="200"}'
+        values: '0+600x30 18000x2 18600+600x30'
+      - series: 'lab_http_requests_total{route="/predict", method="POST", code="500"}'
+        values: '0x30 600 1200 1200x30'
+    alert_rule_test:
+      - eval_time: 33m
+        alertname: PredictAvailabilityFastBurn
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: PredictAvailabilityFastBurn
+        exp_alerts: []
+
+  # Latency: from minute 10 no request is answered within 250 ms.
+  - interval: 1m
+    input_series:
+      - series: 'lab_http_request_duration_seconds_bucket{route="/predict", method="POST", le="0.25"}'
+        values: '0+600x10 6000x50'
+      - series: 'lab_http_request_duration_seconds_count{route="/predict", method="POST"}'
+        values: '0+600x60'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: PredictLatencyFastBurn
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: PredictLatencyFastBurn
+        exp_alerts:
+          - exp_labels: {severity: page, slo: predict-latency}
+            exp_annotations:
+              runbook: runbooks/restore.md
+              summary: "/predict is slow: 100% of requests over 250 ms in the last 5 m"
+
+  # Latency: 2 slow minutes don't page.
+  - interval: 1m
+    input_series:
+      - series: 'lab_http_request_duration_seconds_bucket{route="/predict", method="POST", le="0.25"}'
+        values: '0+600x30 18000x2 18600+600x30'
+      - series: 'lab_http_request_duration_seconds_count{route="/predict", method="POST"}'
+        values: '0+600x62'
+    alert_rule_test:
+      - eval_time: 33m
+        alertname: PredictLatencyFastBurn
+        exp_alerts: []
+
+  # Model answered: serving-champion stops at minute 10; the app answers 200 with the static median.
+  # Availability stays fine (no 5xx), which is the case this SLO exists for.
+  - interval: 1m
+    input_series:
+      - series: 'lab_predictions_total{source="model", alias="champion", version="2"}'
+        values: '0+600x10 6000x50'
+      - series: 'lab_predictions_total{source="fallback", alias="", version=""}'
+        values: '0x10 600+600x49'
+      - series: 'lab_http_requests_total{route="/predict", method="POST", code="200"}'
+        values: '0+600x60'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: PredictModelAnsweredFastBurn
+        exp_alerts:
+          - exp_labels: {severity: page, slo: predict-model-answered}
+            exp_annotations:
+              runbook: runbooks/restore.md
+              summary: "Riders get the static median: 100% of quotes from the fallback in the last 5 m (is serving-champion up?)"
+      - eval_time: 25m
+        alertname: PredictAvailabilityFastBurn
+        exp_alerts: []
+
+  # Model answered: a promotion's reload, with 2 minutes of fallbacks, doesn't page.
+  - interval: 1m
+    input_series:
+      - series: 'lab_predictions_total{source="model", alias="champion", version="2"}'
+        values: '0+600x30 18000x2 18600+600x30'
+      - series: 'lab_predictions_total{source="fallback", alias="", version=""}'
+        values: '0x30 600 1200 1200x30'
+    alert_rule_test:
+      - eval_time: 33m
+        alertname: PredictModelAnsweredFastBurn
+        exp_alerts: []

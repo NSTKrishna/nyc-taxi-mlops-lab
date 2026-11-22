@@ -1,9 +1,43 @@
 # Service level objectives for the ride app (S5, decision 013). rules/slo.rules.yaml computes them.
 # One entry per SLO: what's measured (the SLI, from contracts/metrics.yaml), the objective, why that
 # number, and the alert that tells you it's being missed.
+#
+# All three: 99% over a 1-day window (the lab lives a day or two), so the error budget is 1% of /predict
+# requests, about 14.4 minutes of total failure a day. Alerts: fast burn, 14.4x the allowed error rate
+# over both the last hour and the last 5 minutes. A total outage pages 10 minutes in (promtool, after an hour
+# of good traffic: the hour window needs 14.4% bad, plus `for: 1m`), with about 60% of the day's budget
+# spent; a 2-minute spike doesn't page.
 slos:
   - name: predict-availability
-    sli:
-    objective:
-    why:
-    alert:
+    sli: >-
+      Share of POST /predict requests the app answered without a 5xx:
+      lab_http_requests_total{route="/predict", code!~"5.."} / lab_http_requests_total{route="/predict"},
+      summed over both colours.
+    objective: 99% over 1 day
+    why: >-
+      A 5xx is a rider getting no quote at all. 99% leaves room for what a 2-host lab on burstable
+      instances does in a day: a first blue-green deploy's ~15 s Traefik gap, a container restart, a
+      restore after Start Lab. A stricter 99.9% (1.4 min a day) would be spent by one slow restore.
+    alert: PredictAvailabilityFastBurn
+
+  - name: predict-latency
+    sli: >-
+      Share of /predict requests the app answered within 250 ms:
+      lab_http_request_duration_seconds_bucket{route="/predict", le="0.25"} / lab_http_request_duration_seconds_count{route="/predict"}.
+    objective: 99% within 250 ms, over 1 day
+    why: >-
+      250 ms sits just under the app's 300 ms serving timeout, so a request that waited for serving and
+      then fell back counts as slow. A quote that takes longer than a quarter-second is one a rider
+      notices while booking.
+    alert: PredictLatencyFastBurn
+
+  - name: predict-model-answered
+    sli: >-
+      Share of quotes the model produced, not the static-median fallback:
+      lab_predictions_total{source="model"} / lab_predictions_total.
+    objective: 99% over 1 day
+    why: >-
+      The app answers HTTP 200 with 12.25 minutes when serving is down, slow or has no champion. That
+      passes the availability SLO and is still a wrong answer for the rider. This is the SLI that sees
+      "200 with the wrong number".
+    alert: PredictModelAnsweredFastBurn
