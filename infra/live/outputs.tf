@@ -16,6 +16,10 @@ output "platform_instance_id" {
   value = module.platform.instance_id
 }
 
+output "llm_private_ip" { # S6: LLM_HOST for the app and the pipeline (gh variable)
+  value = module.llm.private_ip
+}
+
 output "llm_instance_id" {
   value = module.llm.instance_id
 }
