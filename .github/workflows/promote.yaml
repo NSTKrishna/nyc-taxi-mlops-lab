@@ -27,7 +27,7 @@ env:
   #   reload   POST /reload: the old model answers until the new one has loaded (deploy/web.sh reload)
   #   restart  restart serving-champion: it loads the alias at start-up; riders get the static median meanwhile
   # Until it's decided, the job stops before it changes anything.
-  PICKUP: undecided
+  PICKUP: reload  # decided (decisions/010)
   SERVING: lab-serving-serving-champion-1
   PREDICT_FEATURES: '{"pickup_zone_id": 132, "dropoff_zone_id": 230, "pickup_hour": 17, "pickup_dow": 5}'
   PREDICT_TRIP: '{"pickup_zone_id": 132, "dropoff_zone_id": 230, "pickup_datetime": "2024-03-08T17:05:00"}'
