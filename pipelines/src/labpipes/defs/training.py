@@ -32,10 +32,10 @@ UNDECIDED = None
 WINDOW: dict = {"train_months": 3}  # decided (S2): 2024-01..2024-03 train, 2024-04 is the holdout
 
 # Decision: promotion metric and margin (decisions/, S2). Lower is better for every metric here.
-GATE: dict = {
-    "metric": UNDECIDED,               # an eval_report metric: "mae_min", or a slice such as "mae_min.airport"
-    "min_improvement_min": UNDECIDED,  # minutes the new version must beat the champion (or v1) by; 0 = any gain
-    "max_p95_latency_ms": UNDECIDED,   # the latency budget: single-row predict, p95, in process
+GATE: dict = {  # decided (decisions/009)
+    "metric": "mae_min",          # an eval_report metric: "mae_min", or a slice such as "mae_min.airport"
+    "min_improvement_min": 0.1,   # minutes the new version must beat the champion (or v1) by; 0 = any gain
+    "max_p95_latency_ms": 50.0,   # the latency budget: single-row predict, p95, in process
 }
 
 FEATURE_COLUMNS = ["pickup_zone_id", "dropoff_zone_id", "pickup_hour", "pickup_dow", "duration_min"]
