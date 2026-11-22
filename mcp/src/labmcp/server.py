@@ -104,12 +104,40 @@ Metric = Literal["trip_count", "median_duration_min", "p90_duration_min"]
 
 @mcp.tool(description="Predict the duration in minutes of a yellow-taxi trip between two NYC TLC taxi zones, using the champion model.")
 async def predict_duration(pickup_zone: Zone, dropoff_zone: Zone, hour: Hour, day_of_week: Day) -> dict:
-    raise NotImplementedError("S7: predict_duration isn't built yet")
+    pickup, dropoff = zone_id(pickup_zone), zone_id(dropoff_zone)
+    # features.yaml's encodings: TLC LocationIDs, hour 0-23, pickup_dow 0 = Sunday.
+    out = await champion("POST", "/predict", {"pickup_zone_id": pickup, "dropoff_zone_id": dropoff,
+                                              "pickup_hour": hour, "pickup_dow": DAYS.index(day_of_week)})
+    return {"duration_minutes": out["duration_minutes"], "pickup_zone": pickup_zone, "pickup_zone_id": pickup,
+            "dropoff_zone": dropoff_zone, "dropoff_zone_id": dropoff, "hour": hour, "day_of_week": day_of_week,
+            "model": out["model"]}
+
+
+# One fixed statement per metric and per with/without hour: the metric picks a statement from this table,
+# it is never formatted into one; the zone id and the hour go in as Data API named parameters.
+_STATS_SQL = {
+    (metric, by_hour): (
+        f"select pickup_hour, {metric} as value, first_month, last_month from marts.zone_hour_stats "
+        "where pickup_zone_id = :zone_id" + (" and pickup_hour = :hour" if by_hour else "") + " order by pickup_hour"
+    )
+    for metric in METRICS for by_hour in (False, True)
+}
 
 
 @mcp.tool(description="Historical trip statistics for one pickup zone from the zone_hour_stats mart.")
 def query_zone_stats(zone: Zone, metric: Metric, hour: Annotated[int | None, Field(ge=0, le=23, description="Optional: restrict to one pickup hour.")] = None) -> dict:
-    raise NotImplementedError("S7: query_zone_stats isn't built yet")
+    zid = zone_id(zone)
+    if metric not in METRICS:  # the schema's enum already refuses it; this keeps _STATS_SQL's lookup safe on its own
+        raise ValueError(f"unknown metric {metric!r}")
+    params: dict[str, object] = {"zone_id": zid}
+    if hour is not None:
+        params["hour"] = int(hour)
+    rows = Warehouse().query(_STATS_SQL[(metric, hour is not None)], params)
+    if not rows:
+        raise ValueError(f"no statistics for {zone!r}" + (f" at {hour}:00" if hour is not None else ""))
+    by_hour = [{"hour": int(r["pickup_hour"]), metric: (round(float(r["value"]), 2) if r["value"] is not None else None)} for r in rows]
+    return {"zone": zone, "zone_id": zid, "metric": metric, "months": f"{rows[0]['first_month']}..{rows[0]['last_month']}",
+            "by_hour": by_hour}
 
 
 @mcp.custom_route("/healthz", methods=["GET"])

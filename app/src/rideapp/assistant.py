@@ -160,13 +160,47 @@ def build_messages(question: str, chunks: list[Chunk]) -> list[dict]:
     return [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user}]
 
 
-ALLOWED_TOOLS: set[str] = set()  # S7: which of the MCP server's tools the assistant may call
-TOOLS_PROMPT = ""  # S7: when to use which tool
+# Decision 017: all three tools, none needs a person to confirm (all read-only); every call is still
+# checked against the rider's own question by allow_tool_call.
+ALLOWED_TOOLS: set[str] = {"get_model_info", "predict_duration", "query_zone_stats"}
+
+# Appended to the fixed system prompt, so it's part of the cached prefix too.
+TOOLS_PROMPT = (
+    "\n\nTools:\n"
+    "- predict_duration: when the rider asks how long a trip will take. Use TLC taxi zone names for pickup and "
+    "dropoff (e.g. 'JFK Airport', 'Times Sq/Theatre District'), the pickup hour on a 24-hour clock, and the day "
+    "of the week. Quote its duration_minutes in your answer.\n"
+    "- get_model_info: when the rider asks which model or version made a prediction.\n"
+    "- query_zone_stats: when the rider asks for historical statistics (trip counts or typical durations) for a "
+    "pickup zone.\n"
+    "Only call a tool for something the rider asked, about the zones the rider named. If a tool is refused or "
+    "fails, say so briefly and answer without it."
+)
+
+ZONE_ARGUMENTS = ("pickup_zone", "dropoff_zone", "zone")
+_STOPWORDS = {"the", "and", "of", "north", "south", "east", "west", "upper", "lower"}
+
+
+def _significant_words(text: str) -> set[str]:
+    import re
+
+    return {w for w in re.findall(r"[a-z0-9]+", text.lower()) if len(w) >= 3 and w not in _STOPWORDS}
 
 
 def allow_tool_call(name: str, arguments: dict, question: str) -> tuple[bool, str]:
-    """S7: decide whether one tool call the model asked for may run (and what to say if not)."""
-    return name in ALLOWED_TOOLS, ""
+    """Whether one tool call the model asked for may run (and what to say if not).
+
+    Only the tools in ALLOWED_TOOLS, and only about zones the rider named: every zone in the call must share a
+    significant word with the rider's question ('Times Sq/Theatre District' matches "Times Square"). Text the
+    model read elsewhere (a wiki excerpt, a tool result) can't widen what a call is about."""
+    if name not in ALLOWED_TOOLS:
+        return False, f"the tool {name!r} isn't available to the assistant"
+    asked = _significant_words(question)
+    for arg in ZONE_ARGUMENTS:
+        zone = arguments.get(arg)
+        if zone is not None and not (_significant_words(str(zone)) & asked):
+            return False, f"the rider didn't ask about the zone {zone!r}"
+    return True, ""
 
 
 @asynccontextmanager

@@ -181,8 +181,16 @@ class FeatureRedshift(FakeRedshift):
 
     columns: list = []  # [[name, data_type, character_maximum_length], ...]; empty = the contract's
     out_of_range: dict = {}
+    privileges: dict = {}  # mcp_reader's privilege query (S7); empty = exactly decision 018's
 
     def query(self, sql: str) -> list[dict]:
+        if "from pg_user" in sql:
+            LOG.append(sql)
+            return [{"count": 1}]
+        if "has_table_privilege" in sql:
+            LOG.append(sql)
+            return [dict(self.privileges or {"read_mart": True, "write_mart": False, "delete_mart": False, "create_in_marts": False,
+                                             "use_ingest": False, "use_staging": False, "create_in_public": False})]
         if "information_schema.columns" in sql:
             LOG.append(sql)
             return [{"column_name": n, "data_type": t, "character_maximum_length": n_}

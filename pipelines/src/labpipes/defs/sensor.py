@@ -21,7 +21,8 @@ from ..resources import DataBucket
 # upstream keeps the month out of the mart and out of the model's features.
 ingest_month = dg.define_asset_job(
     "ingest_month",
-    selection=dg.AssetSelection.assets("zone_hour_stats", "trip_features").upstream(),  # partitioning inferred: trip_months
+    # mcp_reader (S7) right after the mart: lab_ro's grant is re-applied on every refresh.
+    selection=dg.AssetSelection.assets("zone_hour_stats", "trip_features").upstream() | dg.AssetSelection.assets("mcp_reader"),
     description="One month from its landed file to the zone_hour_stats mart and the model's trip_features.",
 )
 

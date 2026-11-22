@@ -9,6 +9,7 @@ from fakes import LOG, fake_bucket, feature_redshift, schema_2023, schema_2025
 from labpipes.contracts import trips_schema
 from labpipes.defs import quality
 from labpipes.defs.marts import zone_hour_stats
+from labpipes.defs.mcp_reader import mcp_reader, mcp_reader_least_privilege
 from labpipes.defs.feature_check import feature_contract
 from labpipes.defs.features import trip_features
 from labpipes.defs.quality import stg_trips_complete, stg_trips_duplicates, stg_trips_values, stg_trips_volume
@@ -58,9 +59,9 @@ def _run(files: dict, monkeypatch, policy: dict | None = None):
     if policy is not None:
         monkeypatch.setattr(quality, "POLICY", policy)
     defs = dg.Definitions(
-        assets=[taxi_zones, trip_files, raw_trips, stg_trips, zone_hour_stats, trip_features],
+        assets=[taxi_zones, trip_files, raw_trips, stg_trips, zone_hour_stats, trip_features, mcp_reader],
         asset_checks=[schema_contract, stg_trips_values, stg_trips_duplicates, stg_trips_complete, stg_trips_volume,
-                      feature_contract],
+                      feature_contract, mcp_reader_least_privilege],
         jobs=[ingest_month],
         resources={"redshift": feature_redshift(), "data_bucket": fake_bucket(files)},
     )
@@ -87,14 +88,14 @@ def _decided(**overrides) -> dict:
 
 def test_a_good_month_reaches_the_mart(monkeypatch):
     done, checks = _run({MONTH: ("e1", trips_schema())}, monkeypatch, _decided())
-    assert done == {"taxi_zones", "trip_files", "raw_trips", "stg_trips", "zone_hour_stats", "trip_features"}
+    assert done == {"taxi_zones", "trip_files", "raw_trips", "stg_trips", "zone_hour_stats", "trip_features", "mcp_reader"}
     assert all(checks.values()) and set(checks) >= {"schema_contract", "stg_trips_values", "stg_trips_complete", "feature_contract"}
 
 
 def test_a_moved_schema_is_never_copied(monkeypatch):
     done, checks = _run({MONTH: ("e1", schema_2025())}, monkeypatch, _decided())
     assert checks["schema_contract"] is False
-    assert "raw_trips" not in done and "zone_hour_stats" not in done and "trip_features" not in done
+    assert "raw_trips" not in done and "zone_hour_stats" not in done and "trip_features" not in done and "mcp_reader" not in done
     assert not any(s.startswith("copy landing") for s in LOG)
 
 
