@@ -24,7 +24,7 @@ env:
   #   manual  the new colour stays idle; a person runs the switch workflow (gh workflow run switch.yaml)
   # Until it's decided the new colour is deployed and smoke-tested but not switched to, and the job fails
   # saying so. The very first blue-green deploy always switches: there is no live colour to keep.
-  SWITCH: undecided
+  SWITCH: auto  # decided (decisions/011)
 
 jobs:
   deploy:
