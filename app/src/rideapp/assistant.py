@@ -114,7 +114,7 @@ async def connect() -> psycopg.AsyncConnection:
                                                  password=s["password"], dbname="rag", autocommit=True, connect_timeout=5)
 
 
-TOP_K = 0  # decision 015: how many chunks go into the prompt. 0 = undecided: no retrieval yet.
+TOP_K = 3  # decided (decisions/015): how many chunks go into the prompt
 
 # Cosine distance (<=>) to the question, best first; score = 1 - distance (1 = same direction). With an
 # HNSW or IVFFlat index (decision 016) this ORDER BY ... LIMIT uses it; without one it's an exact scan.

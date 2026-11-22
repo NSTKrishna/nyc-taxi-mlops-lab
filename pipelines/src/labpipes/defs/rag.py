@@ -27,11 +27,11 @@ UNDECIDED = None
 
 # Decision 015: chunk size and overlap, in estimated tokens (labpipes/chunking.py). Until decided,
 # wiki_chunks fails rather than guess. Changing them re-chunks every page on the next run.
-CHUNKING: dict = {"max_tokens": UNDECIDED, "overlap_tokens": UNDECIDED}
+CHUNKING: dict = {"max_tokens": 256, "overlap_tokens": 32}  # decided (decisions/015): a page is one chunk
 
 # Decision 016: the vector index, "hnsw" or "ivfflat" (with IVFFLAT_LISTS). Until decided there is no
 # index: retrieval still works, as an exact scan over every chunk, which is fine at wiki size.
-INDEX: str | None = UNDECIDED
+INDEX: str | None = "hnsw"  # decided (decisions/016)
 IVFFLAT_LISTS = UNDECIDED  # ivfflat only: how many lists (rule of thumb: rows / 1000, at least 1)
 
 DIMENSIONS = 768
