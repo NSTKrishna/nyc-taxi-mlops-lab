@@ -6,7 +6,8 @@
 # Each SLI is recorded as an error ratio (bad / all /predict requests) over 5 m and 1 h, summed over
 # both app colours. Objective 99% (observability/slo.yaml), so the allowed error ratio is 0.01; the
 # fast-burn alerts page when both windows burn more than 14.4 times that (0.144). The 5 m window comes
-# first, so an alert's $value is the last 5 minutes' error ratio.
+# first, so an alert's $value is the last 5 minutes' error ratio. `or vector(0)`: a counter for bad events
+# only exists once one has happened; without it, "no 5xx since the app started" is no data, not 0.
 groups:
   - name: slo-predict
     interval: 1m
@@ -14,11 +15,11 @@ groups:
       # Availability: 5xx answers to /predict.
       - record: slo:predict_availability:error_ratio_rate5m
         expr: |
-          sum(rate(lab_http_requests_total{route="/predict", code=~"5.."}[5m]))
+          (sum(rate(lab_http_requests_total{route="/predict", code=~"5.."}[5m])) or vector(0))
             / sum(rate(lab_http_requests_total{route="/predict"}[5m]))
       - record: slo:predict_availability:error_ratio_rate1h
         expr: |
-          sum(rate(lab_http_requests_total{route="/predict", code=~"5.."}[1h]))
+          (sum(rate(lab_http_requests_total{route="/predict", code=~"5.."}[1h])) or vector(0))
             / sum(rate(lab_http_requests_total{route="/predict"}[1h]))
 
       # Latency: /predict answered in more than 250 ms.
@@ -38,11 +39,11 @@ groups:
       # Model answered: quotes from the static-median fallback instead of the model.
       - record: slo:predict_model_answered:error_ratio_rate5m
         expr: |
-          sum(rate(lab_predictions_total{source="fallback"}[5m]))
+          (sum(rate(lab_predictions_total{source="fallback"}[5m])) or vector(0))
             / sum(rate(lab_predictions_total[5m]))
       - record: slo:predict_model_answered:error_ratio_rate1h
         expr: |
-          sum(rate(lab_predictions_total{source="fallback"}[1h]))
+          (sum(rate(lab_predictions_total{source="fallback"}[1h])) or vector(0))
             / sum(rate(lab_predictions_total[1h]))
 
   - name: slo-predict-alerts

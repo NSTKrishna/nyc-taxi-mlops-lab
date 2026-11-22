@@ -104,3 +104,22 @@ tests:
       - eval_time: 33m
         alertname: PredictModelAnsweredFastBurn
         exp_alerts: []
+
+  # No 5xx and no fallback has happened yet: those counters don't exist. The SLIs are 0 errors, not no data.
+  - interval: 1m
+    input_series:
+      - series: 'lab_http_requests_total{route="/predict", method="POST", code="200"}'
+        values: '0+600x20'
+      - series: 'lab_predictions_total{source="model", alias="champion", version="2"}'
+        values: '0+600x20'
+    promql_expr_test:
+      - expr: slo:predict_availability:error_ratio_rate5m
+        eval_time: 10m
+        exp_samples:
+          - labels: 'slo:predict_availability:error_ratio_rate5m'
+            value: 0
+      - expr: slo:predict_model_answered:error_ratio_rate1h
+        eval_time: 10m
+        exp_samples:
+          - labels: 'slo:predict_model_answered:error_ratio_rate1h'
+            value: 0
