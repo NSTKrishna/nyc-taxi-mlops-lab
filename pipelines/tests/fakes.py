@@ -163,3 +163,37 @@ class UnloadingRedshift(FakeRedshift):
 def unloading_redshift(root: str) -> UnloadingRedshift:
     LOG.clear()
     return UnloadingRedshift(cluster_id="lab", database="lab", db_user="labadmin", root=root)
+
+
+def contract_columns() -> list:
+    """staging.trip_features as information_schema describes it when it matches contracts/features.yaml."""
+    from labpipes.contracts import features_contract
+
+    c = features_contract()
+    names = {"char(7)": ("character", 7), "integer": ("integer", None), "smallint": ("smallint", None),
+             "double precision": ("double precision", None)}
+    return [[col["name"], *names[col["type"]]] for col in [*c["keys"], *c["inputs"], c["label"]]]
+
+
+class FeatureRedshift(FakeRedshift):
+    """A FakeRedshift that also answers the feature_contract check (S2): the table's columns, and the
+    month's rows outside each contract range."""
+
+    columns: list = []  # [[name, data_type, character_maximum_length], ...]; empty = the contract's
+    out_of_range: dict = {}
+
+    def query(self, sql: str) -> list[dict]:
+        if "information_schema.columns" in sql:
+            LOG.append(sql)
+            return [{"column_name": n, "data_type": t, "character_maximum_length": n_}
+                    for n, t, n_ in (self.columns or contract_columns())]
+        if "from staging.trip_features where trip_month" in sql and "sum(case when" in sql:
+            LOG.append(sql)
+            cols = re.findall(r" as (\w+)(?:,|\s+from)", sql)
+            return [{"rows": self.rows, **{c: self.out_of_range.get(c, 0) for c in cols if c != "rows"}}]
+        return super().query(sql)
+
+
+def feature_redshift(**kw) -> FeatureRedshift:
+    LOG.clear()
+    return FeatureRedshift(cluster_id="lab", database="lab", db_user="labadmin", **kw)

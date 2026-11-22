@@ -1,3 +1,6 @@
 # Copy to terraform.tfvars (gitignored). Your IP: curl -s https://checkip.amazonaws.com
 # The grader's IP comes from the instructor.
 ingress_cidrs = ["203.0.113.10/32", "198.51.100.20/32"]
+
+# S2: your public repo as owner/name; the SageMaker notebook clones it.
+# github_repo = "your-github-user/nyc-taxi-mlops-classroom"

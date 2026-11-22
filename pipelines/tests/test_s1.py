@@ -4,11 +4,13 @@ import json
 
 import dagster as dg
 import pytest
-from fakes import LOG, fake_bucket, fake_redshift, schema_2023, schema_2025
+from fakes import LOG, fake_bucket, feature_redshift, schema_2023, schema_2025
 
 from labpipes.contracts import trips_schema
 from labpipes.defs import quality
 from labpipes.defs.marts import zone_hour_stats
+from labpipes.defs.feature_check import feature_contract
+from labpipes.defs.features import trip_features
 from labpipes.defs.quality import stg_trips_complete, stg_trips_duplicates, stg_trips_values, stg_trips_volume
 from labpipes.defs.raw_trips import load_statements, raw_trips
 from labpipes.defs.schema_check import schema_contract, schema_differences
@@ -56,10 +58,11 @@ def _run(files: dict, monkeypatch, policy: dict | None = None):
     if policy is not None:
         monkeypatch.setattr(quality, "POLICY", policy)
     defs = dg.Definitions(
-        assets=[taxi_zones, trip_files, raw_trips, stg_trips, zone_hour_stats],
-        asset_checks=[schema_contract, stg_trips_values, stg_trips_duplicates, stg_trips_complete, stg_trips_volume],
+        assets=[taxi_zones, trip_files, raw_trips, stg_trips, zone_hour_stats, trip_features],
+        asset_checks=[schema_contract, stg_trips_values, stg_trips_duplicates, stg_trips_complete, stg_trips_volume,
+                      feature_contract],
         jobs=[ingest_month],
-        resources={"redshift": fake_redshift(), "data_bucket": fake_bucket(files)},
+        resources={"redshift": feature_redshift(), "data_bucket": fake_bucket(files)},
     )
     instance = dg.DagsterInstance.ephemeral()
     instance.add_dynamic_partitions("trip_months", [MONTH])
@@ -84,14 +87,14 @@ def _decided(**overrides) -> dict:
 
 def test_a_good_month_reaches_the_mart(monkeypatch):
     done, checks = _run({MONTH: ("e1", trips_schema())}, monkeypatch, _decided())
-    assert done == {"taxi_zones", "trip_files", "raw_trips", "stg_trips", "zone_hour_stats"}
-    assert all(checks.values()) and set(checks) >= {"schema_contract", "stg_trips_values", "stg_trips_complete"}
+    assert done == {"taxi_zones", "trip_files", "raw_trips", "stg_trips", "zone_hour_stats", "trip_features"}
+    assert all(checks.values()) and set(checks) >= {"schema_contract", "stg_trips_values", "stg_trips_complete", "feature_contract"}
 
 
 def test_a_moved_schema_is_never_copied(monkeypatch):
     done, checks = _run({MONTH: ("e1", schema_2025())}, monkeypatch, _decided())
     assert checks["schema_contract"] is False
-    assert "raw_trips" not in done and "zone_hour_stats" not in done
+    assert "raw_trips" not in done and "zone_hour_stats" not in done and "trip_features" not in done
     assert not any(s.startswith("copy landing") for s in LOG)
 
 
@@ -99,7 +102,7 @@ def test_undecided_thresholds_fail_closed(monkeypatch):
     done, checks = _run({MONTH: ("e1", trips_schema())}, monkeypatch)
     if any(v is None for v in quality.POLICY["stg_trips_values"]["max_rate"].values()):
         assert checks["stg_trips_values"] is False
-        assert "zone_hour_stats" not in done
+        assert "zone_hour_stats" not in done and "trip_features" not in done
     else:
         pytest.skip("POLICY is decided")
 

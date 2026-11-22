@@ -16,12 +16,13 @@ import dagster as dg
 from ..partitions import check_month, trip_months
 from ..resources import DataBucket
 
-# zone_hour_stats and everything upstream of it: taxi_zones, trip_files, raw_trips, stg_trips, and the
-# checks on them. The mart is in the same run, so a blocking check that fails upstream keeps the month out.
+# zone_hour_stats and trip_features (S2), and everything upstream of them: taxi_zones, trip_files,
+# raw_trips, stg_trips, and the checks on them. Both are in the same run, so a blocking check that fails
+# upstream keeps the month out of the mart and out of the model's features.
 ingest_month = dg.define_asset_job(
     "ingest_month",
-    selection=dg.AssetSelection.assets("zone_hour_stats").upstream(),  # partitioning inferred: trip_months
-    description="One month from its landed file to the zone_hour_stats mart.",
+    selection=dg.AssetSelection.assets("zone_hour_stats", "trip_features").upstream(),  # partitioning inferred: trip_months
+    description="One month from its landed file to the zone_hour_stats mart and the model's trip_features.",
 )
 
 
