@@ -52,6 +52,13 @@ fi
 for c in "${CONTAINERS[@]}"; do
   docker inspect "$c" >/dev/null 2>&1 || { log "$c: not deployed, skipped"; continue; }
   state=$(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "$c")
+  # Still in its health check's start period (right after boot): give it up to 2 minutes to settle
+  # before judging it. Restarting it then only starts the wait over (first boot test, 2026-11-22).
+  for _ in $(seq 1 24); do
+    [[ $state == "running starting" ]] || break
+    sleep 5
+    state=$(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "$c")
+  done
   if [[ $state == "running healthy" || $state == "running " ]]; then
     log "$c: $state, left alone"
   else

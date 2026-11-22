@@ -28,6 +28,10 @@ Owner: NSTKrishna · Last run: 2026-11-22 · Time to restore last run: about 10 
 | 9 | `aws sagemaker describe-notebook-instance --notebook-instance-name lab --query NotebookInstanceStatus` | `Stopped`, unless someone is exploring | Only when needed: `aws sagemaker start-notebook-instance --notebook-instance-name lab` | — | never: decisions/012 |
 | 10 | `gh workflow run status.yaml`, then `gh run list --workflow status` | green, RDS and Redshift `available` in the artifact | the rows above | 1 min | runs every 20 min by itself |
 
+## Last run after Start Lab (2026-11-22, 10:19 UTC): touch nothing
+
+Start Lab booted the platform host at 10:19:31. `lab-restore` started 8 s later. RDS and Redshift were already available (a session end doesn't stop them, only the 18:45 shutdown does), it ran `db-init`, and MLflow and Dagster answered **45 s after boot**. Found: it restarted `platform-code-1` and `platform-mlflow-1` while their health checks were still `starting`. Fixed: it now waits up to 2 minutes for a starting container before judging it. Not yet exercised: starting RDS or resuming Redshift at boot, because both were up.
+
 ## Done when
 
 1. `/predict` on the public IP answers `"alias": "champion"` (row 7): what a rider sees.
