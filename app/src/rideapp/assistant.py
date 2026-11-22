@@ -153,12 +153,16 @@ SYSTEM_PROMPT = (
 
 
 def build_messages(question: str, chunks: list[Chunk]) -> list[dict]:
-    """The fixed system prompt, then one user turn: the excerpts (best first, each with its page), then the question."""
+    """The fixed system prompt, then one user turn: the question, then the excerpts (best first, each with its page).
+
+    Question first: with the excerpts last, the 4B model answered from them and skipped predict_duration on a
+    trip-time question (tested on the LLM host, 2026-11-22: no tool call with excerpts first, a call with the
+    question first, 67 s)."""
     if chunks:
         excerpts = "\n\n".join(f"[{i}] From \"{c.title}\" ({c.page_id}):\n{c.content}" for i, c in enumerate(chunks, 1))
-        user = f"Wiki excerpts:\n\n{excerpts}\n\nRider's question: {question}"
+        user = f"Rider's question: {question}\n\nWiki excerpts (company policies; use only what is relevant):\n\n{excerpts}"
     else:
-        user = f"Wiki excerpts: none found.\n\nRider's question: {question}"
+        user = f"Rider's question: {question}\n\nWiki excerpts: none found."
     return [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user}]
 
 
@@ -175,6 +179,8 @@ TOOLS_PROMPT = (
     "- get_model_info: when the rider asks which model or version made a prediction.\n"
     "- query_zone_stats: when the rider asks for historical statistics (trip counts or typical durations) for a "
     "pickup zone.\n"
+    "A question about how long a trip takes always needs predict_duration: call it first, even when wiki "
+    "excerpts are present. The excerpts explain policies; they never contain a trip time.\n"
     "Only call a tool for something the rider asked, about the zones the rider named. If a tool is refused or "
     "fails, say so briefly and answer without it."
 )

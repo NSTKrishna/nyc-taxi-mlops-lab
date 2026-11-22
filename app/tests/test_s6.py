@@ -17,16 +17,17 @@ def test_system_prompt_is_the_same_whatever_was_retrieved():
     assert [m["role"] for m in with_wiki] == ["system", "user"]
 
 
-def test_excerpts_go_in_the_user_turn_best_first_then_the_question():
+def test_the_question_then_the_excerpts_best_first_go_in_the_user_turn():
     user = a.build_messages("How much is the Harbor Line surcharge?", CHUNKS)[1]["content"]
+    assert user.startswith("Rider's question: How much is the Harbor Line surcharge?")  # first: see build_messages
     assert user.index("[1] From \"Harbor Line surcharge\" (harbor-line)") < user.index("[2] From \"Airport pickups\"")
-    assert "It is $4.50." in user and user.rstrip().endswith("Rider's question: How much is the Harbor Line surcharge?")
+    assert "It is $4.50." in user
     assert "$4.50" not in a.SYSTEM_PROMPT
 
 
 def test_no_excerpts_says_so():
     user = a.build_messages("What is the pet policy?", [])[1]["content"]
-    assert "none found" in user and user.endswith("What is the pet policy?")
+    assert "none found" in user and user.startswith("Rider's question: What is the pet policy?")
 
 
 class FakeCursor:
