@@ -17,3 +17,6 @@ __pycache__/
 .idea/
 .vscode/
 infra/modules/*/.terraform.lock.hcl
+
+# Local platform stack (scripts/local-platform.sh)
+.local/
