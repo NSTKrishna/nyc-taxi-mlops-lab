@@ -29,7 +29,7 @@ UNDECIDED = None
 
 # Decision: training window (decisions/, S2). The holdout is the latest month in staging.trip_features;
 # the window is the `train_months` consecutive months right before it, and all of them must be loaded.
-WINDOW: dict = {"train_months": UNDECIDED}
+WINDOW: dict = {"train_months": 3}  # decided (S2): 2024-01..2024-03 train, 2024-04 is the holdout
 
 # Decision: promotion metric and margin (decisions/, S2). Lower is better for every metric here.
 GATE: dict = {
