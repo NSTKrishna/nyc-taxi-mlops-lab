@@ -24,8 +24,14 @@ line OK session "${who##*/}"
 
 tfvars="$root/infra/live/terraform.tfvars"
 if ip=$(curl -fsS -m 5 https://checkip.amazonaws.com); then
-  if grep -q "\"$ip/32\"" "$tfvars" 2>/dev/null; then
-    line OK laptop-ip "$ip is in ingress_cidrs"
+  # Whether the IP falls inside any ingress CIDR, not only a literal "<ip>/32" (decisions/001 may be wider).
+  cidrs=$(sed -n '/^ingress_cidrs/,/]/p' "$tfvars" 2>/dev/null | grep -o '"[0-9./]*"' | tr -d '"')
+  # shellcheck disable=SC2086 # one argument per CIDR
+  if match=$(python3 -c 'import ipaddress, sys
+ip = ipaddress.ip_address(sys.argv[1])
+hit = [c for c in sys.argv[2:] if ip in ipaddress.ip_network(c, strict=False)]
+print(hit[0]) if hit else sys.exit(1)' "$ip" $cidrs 2>/dev/null); then
+    line OK laptop-ip "$ip is in ingress_cidrs ($match)"
   else
     line WARN laptop-ip "$ip is not in ingress_cidrs ($tfvars): the app will refuse you"
   fi
