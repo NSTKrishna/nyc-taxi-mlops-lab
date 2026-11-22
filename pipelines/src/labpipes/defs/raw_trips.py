@@ -17,8 +17,8 @@ from ..contracts import redshift_columns, trips_schema
 from ..partitions import source_file, trip_months
 from ..resources import DataBucket, RedshiftData
 
-# Decision: dist and sort keys for ingest.raw_trips (decisions/, S1). Pending: until it's decided this
-# stays empty, which is Redshift's default (DISTSTYLE AUTO, SORTKEY AUTO). Example shape:
+# Decision: dist and sort keys for ingest.raw_trips (decisions/006). Decided: empty, which is Redshift's
+# automatic table optimization (DISTSTYLE AUTO, SORTKEY AUTO). The rejected alternative's shape:
 # "diststyle even sortkey (source_file, tpep_pickup_datetime)". The table is created once, so a later
 # change needs ALTER TABLE ... ALTER DISTSTYLE / ALTER SORTKEY (or a drop and reload of every month).
 TABLE_KEYS = ""
