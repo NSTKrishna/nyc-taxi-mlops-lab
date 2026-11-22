@@ -18,10 +18,10 @@ Drop only the noisy families (`container_fs_*`, `node_scrape_collector_*`) and t
 
 ## Why
 
-<!-- Student: confirm or rewrite this in your own words, and fill in the after numbers. -->
+<!-- Student: confirm or rewrite this in your own words. -->
 Before any rules, app and platform sent about **3,445** series: cAdvisor 1,708 (half; `container_fs_*` alone is about 12 metrics × 72-83 series), node 1,273 (`node_scrape_collector_*` alone 184), Traefik 223, app 190, serving 42. The dashboard reads 9 metrics and the SLO rules read only `lab_*`. S6 adds the LLM host, roughly another 1,500 without rules, and every deploy adds new container-id series until old ones go stale (12 distinct ids already). Kept as they were, a few deploys plus the LLM host would approach 5,000. Dropping `id` and `image` means a redeployed container continues its own series instead of starting a new set.
 
-After the rules: ___ series (app ___, platform ___); after 3 deploys in a row: ___.
+After the rules: **356** active series in Alloy (app 320, platform 36), down from 3,445. After 4 deploys in a row (3 by hand, 2026-11-22 11:27 UTC): **347** series with a sample in the last 5 minutes in Grafana (app: lab 135, Traefik 110, node 25, serving 22, cAdvisor 17; platform: node 25, cAdvisor 11). Still 6 container names on app: dropping `id` and `image` means redeploys don't add series. That leaves a wide margin under 5,000 for S6's LLM host.
 
 The cost: anything not kept is gone. If an incident turns out to be disk I/O (`container_fs_*`), or Traefik's entrypoint-level errors, there's no history to look at. That's a rule change and a redeploy away, but only from then on.
 
