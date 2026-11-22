@@ -62,10 +62,18 @@ jobs:
           fi
           for _ in $(seq 1 60); do
             got=$(docker exec "$SERVING" python -c 'import json, urllib.request; print(json.load(urllib.request.urlopen("http://localhost:8001/model", timeout=5))["version"])' 2>/dev/null || true)
-            [[ $got == "$VERSION" ]] && { echo "serving-champion serves v$got"; exit 0; }
+            [[ $got == "$VERSION" ]] && break
             sleep 5
           done
-          echo "::error::serving-champion still serves '${got:-nothing}' after 5 minutes"; exit 1
+          [[ $got == "$VERSION" ]] || { echo "::error::serving-champion still serves '${got:-nothing}' after 5 minutes"; exit 1; }
+          echo "serving-champion serves v$got"
+          # Traefik's weighted serving-live route can keep hanging after its 100%-weight child comes back
+          # from unhealthy (no champion yet, or MLflow not up after a boot): requests got no answer and no
+          # access-log line until its dynamic config was rewritten. Rewrite it with the weights it has now
+          # (a canary split, S8, is kept), so Traefik rebuilds the route before /predict is checked.
+          weights=$(deploy/web.sh status | jq -r '"\(.serving_weights.champion // 100) \(.serving_weights.challenger // 0)"')
+          # shellcheck disable=SC2086 # two numbers
+          deploy/web.sh serving-weights $weights
       - name: Check /predict
         run: |
           # Through Traefik's serving entrypoint (it health-checks /model, so allow it a few rounds).
