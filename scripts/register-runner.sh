@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# S0: register the app host as a self-hosted GitHub Actions runner with label lab-app
-# (contracts/runtime.yaml), so cd.yaml can deploy with the host's instance profile (decisions/002).
+# S0: register a lab host as a self-hosted GitHub Actions runner with label lab-<role>
+# (contracts/runtime.yaml), so its workflows deploy with the host's instance profile (decisions/002).
 #
-#   scripts/register-runner.sh
+#   scripts/register-runner.sh             the app host, label lab-app (S0)
+#   scripts/register-runner.sh platform    the platform host, label lab-platform (S1)
+#   scripts/register-runner.sh llm         the LLM host, label lab-llm (S6)
 #
 # Before running it: set Settings > Actions > General > "Require approval for all external
 # contributors" (the repo is public), and have AWS credentials in the environment and `gh` logged in.
@@ -11,17 +13,20 @@
 # install on the host through SSM Run Command, as the `runner` user the host's first boot created.
 # The token is never printed and never on a command line here; it does sit in the SSM command's
 # parameters (visible in the SSM console's command history to anyone with SSM access) until it expires.
-# Idempotent: a host that is already registered is left alone.
+# Idempotent: a host already registered to this repo is left alone; one registered to another repo is
+# reported and left alone too (remove it on the host with config.sh remove, then run this again).
 set -euo pipefail
 export AWS_REGION=us-east-1 AWS_DEFAULT_REGION=us-east-1 AWS_PAGER=""
 
 RUNNER_VERSION="${RUNNER_VERSION:-2.338.2}" # pinned: bump deliberately
-LABEL=lab-app
+role=${1:-app}
+[[ "$role" =~ ^(app|platform|llm)$ ]] || { echo "usage: scripts/register-runner.sh [app|platform|llm]" >&2; exit 2; }
+LABEL=lab-$role
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 
 repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
-instance=$(terraform -chdir="$HERE/infra/live" output -raw app_instance_id) ||
-  { echo "no app_instance_id output: has terraform apply run?" >&2; exit 1; }
+instance=$(terraform -chdir="$HERE/infra/live" output -raw "${role}_instance_id") ||
+  { echo "no ${role}_instance_id output: has terraform apply run?" >&2; exit 1; }
 
 # Hash of the runner tarball from the release itself, so the host verifies what it downloads.
 asset="actions-runner-linux-arm64-${RUNNER_VERSION}.tar.gz"
@@ -41,7 +46,11 @@ remote=$(cat <<'REMOTE'
 set -euo pipefail
 until [ -f /var/lib/lab-setup-done ]; do sleep 5; done
 cd /opt/actions-runner
-if [ -f .runner ]; then echo "already registered"; exit 0; fi
+if [ -f .runner ]; then
+  url=$(tr -d '\000' < .runner | sed -n 's/.*"gitHubUrl": *"\([^"]*\)".*/\1/p')
+  if [ "$url" = "https://github.com/${REPO}" ]; then echo "already registered to ${REPO}"; exit 0; fi
+  echo "this host's runner is registered to ${url:-another repo}, not ${REPO}: left alone" >&2; exit 1
+fi
 find . -mindepth 1 -delete # a fresh install, never unpacked over an auto-updated one
 curl -fsSL -o runner.tgz "https://github.com/actions/runner/releases/download/v${VERSION}/actions-runner-linux-arm64-${VERSION}.tar.gz"
 echo "${SHA}  runner.tgz" | sha256sum -c -
