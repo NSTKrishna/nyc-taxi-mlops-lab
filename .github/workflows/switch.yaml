@@ -43,8 +43,14 @@ jobs:
           [[ $tag != none ]] || { echo "::error::$target isn't running: nothing to switch to"; exit 1; }
           deploy/web.sh smoke "$target" "$tag"
           deploy/web.sh switch "$target"
-          out=$(curl -fsS --retry 10 --retry-all-errors --retry-delay 1 http://127.0.0.1/version)
-          echo "$out" | jq -e --arg sha "$tag" '.git_sha == $sha'
+          # Traefik reloads its file config a moment after `switch` writes it: ask until the target answers.
+          for _ in $(seq 1 30); do
+            out=$(curl -fsS -m 5 http://127.0.0.1/version || true)
+            jq -e --arg sha "$tag" '.git_sha == $sha' <<<"${out:-null}" >/dev/null && break
+            sleep 0.5
+          done
+          echo "/version: $out"
+          jq -e --arg sha "$tag" '.git_sha == $sha' <<<"${out:-null}"
           ms=$(( $(date +%s%3N) - start )); took=$((ms / 1000)).$(printf %03d $((ms % 1000)))
           echo "::notice::app traffic $live -> $target ($tag) in ${took}s"
           {

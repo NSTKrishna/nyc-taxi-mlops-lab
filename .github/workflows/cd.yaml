@@ -86,7 +86,13 @@ jobs:
       - name: Check what is live
         run: |
           live=$(deploy/web.sh live)
-          out=$(curl -fsS --retry 10 --retry-all-errors --retry-delay 2 http://127.0.0.1/version)
+          want=$(deploy/web.sh tag "$live")
+          # Traefik reloads its file config a moment after `switch` writes it: ask until the live colour answers.
+          for _ in $(seq 1 30); do
+            out=$(curl -fsS -m 5 http://127.0.0.1/version || true)
+            jq -e --arg sha "$want" '.git_sha == $sha' <<<"${out:-null}" >/dev/null && break
+            sleep 1
+          done
           echo "live: $live, /version: $out"
-          echo "$out" | jq -e --arg sha "$(deploy/web.sh tag "$live")" '.git_sha == $sha'
+          jq -e --arg sha "$want" '.git_sha == $sha' <<<"${out:-null}"
           { echo "### Live: $live"; echo '```json'; deploy/web.sh status; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
