@@ -57,10 +57,13 @@ jobs:
           idle=$([[ $live == blue ]] && echo green || echo blue)
           # The live colour keeps the tag it runs; only the idle one changes.
           if [[ $idle == blue ]]; then
-            export BLUE_TAG=$IMAGE_TAG GREEN_TAG=$(deploy/web.sh tag green)
+            BLUE_TAG=$IMAGE_TAG
+            GREEN_TAG=$(deploy/web.sh tag green)
           else
-            export GREEN_TAG=$IMAGE_TAG BLUE_TAG=$(deploy/web.sh tag blue)
+            GREEN_TAG=$IMAGE_TAG
+            BLUE_TAG=$(deploy/web.sh tag blue)
           fi
+          export BLUE_TAG GREEN_TAG
           echo "live: $live -> deploying $IMAGE_TAG to $idle"
           docker compose -f deploy/compose.web.yaml pull "app-$idle"
           # --remove-orphans: the first time, S0's single `app` container goes (same project, lab-app).
